@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$root"
+java_cmd=${GIS_JAVA_COMMAND:-}
+if [ "${GIS_FORCE_DOCKER:-}" = "1" ]; then java_cmd=/unavailable; fi
+if [ -z "$java_cmd" ] && [ -f .gis-agent/tools/java.path ]; then java_cmd=$(cat .gis-agent/tools/java.path); fi
+if [ -z "$java_cmd" ] && [ -n "${JAVA_HOME:-}" ]; then java_cmd="$JAVA_HOME/bin/java"; fi
+if [ -z "$java_cmd" ] && command -v java >/dev/null 2>&1; then java_cmd=$(command -v java); fi
+if [ -n "$java_cmd" ] && "$java_cmd" -version 2>&1 | head -1 | grep -Eq 'version "25[.\"]'; then
+  export JAVA_HOME=$(CDPATH= cd -- "$(dirname -- "$java_cmd")/.." && pwd)
+  if [ ! -f build/libs/gis-integrator.jar ] || find src/main build.gradle settings.gradle -type f -newer build/libs/gis-integrator.jar | grep -q .; then
+    ./gradlew --console=plain jar >&2
+  fi
+  exec "$java_cmd" -jar build/libs/gis-integrator.jar "$@"
+fi
+# Identical absolute host/container paths let Docker resolve runner bind mounts.
+image=gis-agent-java25:local
+mkdir -p .gis-agent
+dockerfile_stamp=$(cksum < runtime/Dockerfile)
+if ! docker image inspect "$image" >/dev/null 2>&1 || [ ! -f .gis-agent/bootstrap-image.checksum ] || [ "$(cat .gis-agent/bootstrap-image.checksum)" != "$dockerfile_stamp" ]; then
+  docker build -f runtime/Dockerfile -t "$image" . >&2
+  printf '%s\n' "$dockerfile_stamp" > .gis-agent/bootstrap-image.checksum
+  docker image inspect --format '{{.Id}}' "$image" > .gis-agent/bootstrap-image.id
+fi
+parent=$(dirname -- "$root")
+if [ ! -f build/libs/gis-integrator.jar ] || find src/main build.gradle settings.gradle -type f -newer build/libs/gis-integrator.jar | grep -q .; then
+  docker run --rm -v "$parent:$parent" -v gis-agent-build-cache:/cache/gradle -w "$root" "$image" ./gradlew --console=plain jar >&2
+fi
+# Optional explicitly forwarded job/Git credential variables; values stay in env.
+set -- "$image" java -jar build/libs/gis-integrator.jar "$@"
+forward_env=${GIS_FORWARD_ENV:-}
+for env_name in $forward_env; do
+  case "$env_name" in ''|*[!A-Za-z0-9_]*) printf 'Invalid environment name\n' >&2; exit 2;; esac
+  set -- -e "$env_name" "$@"
+done
+if [ -n "${GIS_INPUT_DIRECTORY:-}" ]; then
+  set -- -v "$GIS_INPUT_DIRECTORY:$GIS_INPUT_DIRECTORY:ro" "$@"
+fi
+exec docker run --rm -i -v "$parent:$parent" -v /var/run/docker.sock:/var/run/docker.sock -w "$root" -e GIS_CONTAINER_MODE=true "$@"

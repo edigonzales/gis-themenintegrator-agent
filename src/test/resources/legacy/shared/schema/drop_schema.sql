@@ -1,0 +1,1 @@
+DROP SCHEMA ${dbSchema} CASCADE;

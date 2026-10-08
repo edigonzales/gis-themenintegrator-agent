@@ -1,0 +1,151 @@
+import ch.so.agi.gretl.tasks.*
+import java.nio.file.Paths
+
+apply plugin: 'ch.so.agi.gretl'
+apply plugin: 'de.undercouch.download'
+
+
+def defaultDataSets = [
+    '2401', '2402', '2403', '2404', '2405', '2406', '2407', '2408',
+    '2421', '2422', '2424', '2425', '2426', '2427', '2428',
+    '2430',
+    '2445',
+    '2455', '2457',
+    '2461', '2463', '2464', '2465',
+    '2471', '2472', '2473', '2474', '2475', '2476', '2477', '2478', '2479',
+    '2480', '2481',
+    '2491', '2492', '2493', '2495', '2497', '2499',
+    '2500', '2501', '2502', '2503',
+    '2511', '2513', '2514', '2516', '2517', '2518', '2519',
+    '2520', '2523', '2524', '2525', '2526', '2527', '2528', '2529',
+    '2530', '2532', '2534', '2535',
+    '2541', '2542', '2543', '2544', '2545', '2546', '2547', '2548', '2549',
+    '2550', '2551', '2553', '2554', '2555', '2556',
+    '2571', '2572', '2573', '2574', '2575', '2576', '2578', '2579',
+    '2580', '2581', '2582', '2583', '2584', '2585', '2586',
+    '2601',
+    '2611', '2612', '2613', '2614', '2615', '2616', '2617', '2618', '2619',
+    '2620', '2621', '2622'
+]
+// Read from schemaProperties which data sets to import; if data.dataSets property is not set, then set dataSets variable to ['noDataSet']:
+def dataSets = schemaProperties.getProperty('data.dataSets') ? schemaProperties.getProperty('data.dataSets').split(',') : ['noDataSet']
+// Override dataSets if passed as project property:
+if ( project.hasProperty('data.dataSets') ) { dataSets = project.getProperty('data.dataSets').split(',') }
+// If the value of dataSets was set to "defaultDataSets", then replace this value with the defaultDataSets list defined above:
+if ( dataSets == ['defaultDataSets'] ) { dataSets = defaultDataSets }
+
+def themePublicationName = schemaProperties.getProperty('data.themePublicationName')
+def baseFileName = "${themePublicationName}.xtf"
+
+dataSets.each {
+    def dataSetName = it
+    def fileName = ( dataSetName == 'noDataSet' ) ? baseFileName : "${dataSetName}.${baseFileName}"
+
+    task "downloadData_$dataSetName"(type: Download) {
+        group = 'Development data'
+        description = 'Download data'
+        src "https://files.geo.so.ch/${themePublicationName}/aktuell/${fileName}.zip"
+        dest file(Paths.get(System.getProperty('java.io.tmpdir'), "${fileName}.zip"))
+        doLast {
+            println "File https://files.geo.so.ch/${themePublicationName}/aktuell/${fileName}.zip downloaded"
+        }
+    }
+
+    task "unzipData_$dataSetName"(type: Copy) {
+        group = 'Development data'
+        description = 'Unzip data'
+        dependsOn "downloadData_$dataSetName"
+        from zipTree(Paths.get(System.getProperty('java.io.tmpdir'), "${fileName}.zip"))
+        into Paths.get(System.getProperty('java.io.tmpdir'))
+        include '**/*.xtf'
+        doLast {
+            println "File ${fileName}.zip unzipped"
+        }
+    }
+
+    task "importDataset_$dataSetName"(type: Ili2pgReplace) {
+        group = 'Development data'
+        description = 'Import dataset'
+        dependsOn "unzipData_$dataSetName"
+        doLast {
+            println "Dataset ${dataSetName} imported into DB schema ${project.schemaName}"
+        }
+        database = [project.dbUri, project.dbUser, project.dbPwd]
+        dbschema = project.schemaName
+        models = project.schemaProperties.getProperty('models')
+        dataFile = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ? file(Paths.get(System.getProperty('java.io.tmpdir'), fileName)) : files(Paths.get(System.getProperty('java.io.tmpdir'), fileName))
+        dataset = dataSetName
+        disableValidation = true
+        finalizedBy "removeFiles_$dataSetName"
+    }
+
+    task "importData_$dataSetName"(type: Ili2pgImport) {
+        group = 'Development data'
+        description = 'Import data'
+        dependsOn "unzipData_$dataSetName"
+        doLast {
+            println "Data imported into DB schema ${project.schemaName}"
+        }
+        database = [project.dbUri, project.dbUser, project.dbPwd]
+        dbschema = project.schemaName
+        models = project.schemaProperties.getProperty('models')
+        dataFile = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ? file(Paths.get(System.getProperty('java.io.tmpdir'), fileName)) : files(Paths.get(System.getProperty('java.io.tmpdir'), fileName))
+        disableValidation = true
+        finalizedBy "removeFiles_$dataSetName"
+    }
+
+    task "removeFiles_$dataSetName"(type: Delete) {
+        group = 'Development data'
+        description = 'Remove downloaded files'
+        delete Paths.get(System.getProperty('java.io.tmpdir'), "${fileName}.zip"),
+            Paths.get(System.getProperty('java.io.tmpdir'), fileName)
+        doLast {
+            println "Files ${fileName} and ${fileName}.zip deleted"
+        }
+    }
+}
+
+task importDevelopmentData() {
+    group = 'Development data'
+    description = 'Determine and collect all tasks needed for importing the data'
+    dependsOn {
+        if ( dataSets == ['noDataSet'] ) {
+            tasks.findAll { task -> task.name.startsWith('importData_') }
+        } else {
+            tasks.findAll { task -> task.name.startsWith('importDataset_') }
+        }
+    }
+    doLast {
+        println "Development data imported successfully"
+    }
+}
+
+// Makes sure that the importDevelopmentData task
+// is not run in a productive environment:
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask(importDevelopmentData) && gretlEnvironment != 'development' && gretlEnvironment != 'dev') {
+        throw new GradleException("The importDevelopmentData task may be run in a development environment only")
+    }
+}
+
+
+task grantDevelopmentPrivileges(type: SqlExecutor) {
+    group = 'Development privileges'
+    description = 'Grant privileges on schema and tables to schema roles, and grant membership in those roles to the gretl user'
+
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    sqlFiles = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ?
+        [
+            project(':privilege-tasks-shared').file('recreate_role.sql').getPath(),
+            'grants_development.sql'
+        ] :
+        files(
+            project(':privilege-tasks-shared').file('recreate_role.sql'),
+            'grants_development.sql'
+        )
+    sqlParameters = [dbSchema: project.schemaName, roleSuffix: project.dbSpecificSuffix]
+
+    doLast {
+        println "Development privileges for DB schema ${project.schemaName} granted"
+    }
+}

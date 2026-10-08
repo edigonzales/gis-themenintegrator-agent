@@ -1,0 +1,13 @@
+rootProject.name = 'schema-tasks-shared'
+
+include 'schema-tasks-topic'
+project(':schema-tasks-topic').projectDir = file("../../topics/${topicName}/${schemaDirName}")
+
+include 'privilege-tasks-shared'
+project(':privilege-tasks-shared').projectDir = file("../../shared/privileges")
+
+include 'privilege-tasks-topic'
+project(':privilege-tasks-topic').projectDir = file("../../topics/${topicName}/${schemaDirName.replaceFirst('schema', 'privileges')}")
+
+include 'development-tasks-shared'
+project(':development-tasks-shared').projectDir = file("../../shared/development_tasks")

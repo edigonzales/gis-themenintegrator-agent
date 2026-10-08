@@ -1,0 +1,241 @@
+import ch.so.agi.gretl.tasks.*
+
+apply plugin: 'ch.so.agi.gretl'
+
+
+// Load properties file which is located in the project directory of the specific schema
+project.ext.schemaProperties = new Properties()
+project(':schema-tasks-topic').file('schema.properties').withReader { project.schemaProperties.load(it) }
+
+// Load job properties file if it exists
+project.ext.jobProperties = new Properties()
+File jobPropertiesFile = project(':schema-tasks-topic').file('job.properties')
+if (jobPropertiesFile.exists()) {
+    jobPropertiesFile.withReader { project.jobProperties.load(it) }
+}
+
+// Define nodeLabel value that introduces API break and set it as extra project property
+project.ext.apiBreakNodeLabel = 'gretl-3.2'
+
+// Get the suffix of the schema directory (if any)
+def schemaSuffix = project.property('schemaDirName').replaceFirst('schema', '')
+
+// Get the schema name either from the properties file if it's set,
+// or construct the schema name from the topic directory name and the schema directory suffix
+// (This uses the Elvis operator, http://groovy-lang.org/operators.html#_elvis_operator)
+def schema = schemaProperties.getProperty('schemaName') ?: project.property('topicName') + schemaSuffix
+def schemaVersion = schemaProperties.getProperty('schemaVersion') as Integer
+if (!schemaVersion) {
+    project.ext.set('schemaName', "${schema}".toString())
+    // The schemaNamePrevious extra property is not applicable in this case,
+    // so set it to a fake value
+    project.ext.set('schemaNamePrevious', 'this_is_a_non_versioned_schema'.toString())
+    println "This is a non versioned schema; schema name: ${project.schemaName}"
+} else {
+    project.ext.set('schemaName', "${schema}_v${schemaVersion}".toString())
+    project.ext.set('schemaNamePrevious', "${schema}_v${schemaVersion - 1}".toString())
+    println "This is a versioned schema; schema name: ${project.schemaName}, previous version schema name: ${project.schemaNamePrevious}"
+}
+
+def dbName
+// Take the dbName property if it's set and if it's not null
+if ( project.hasProperty('dbName') && project.dbName) {
+    dbName = project.property('dbName')
+} else {
+    // Determine the DB name from the createSchema Property file
+    def databases = schemaProperties.getProperty('databases')
+    if ( !databases ) {
+        throw new MissingPropertyException('The databases property is not defined.')
+    }
+    // The script can handle just one DB at a time.
+    // Therefore, in cases where a schema needs to be created in multiple DBs
+    // (i.e. if multiple DBs are specified in the databases property),
+    // the script is terminated here, and the user is propmted
+    // to pass the dbName property in order to choose a specific DB.
+    if (databases.split(',').size() == 1) {
+        dbName = databases
+    } else {
+        throw new Exception("Multiple databases defined in the property file: ${databases}; please pass the dbName property specifying which DB to choose.")
+    }
+}
+
+if ( dbName == 'edit' ) {
+    project.ext.dbUri = project.property('dbUriEdit')
+    project.ext.dbUser = project.property('dbUserEditDdl')
+    project.ext.dbPwd = project.property('dbPwdEditDdl')
+} else if ( dbName == 'pub' ) {
+    project.ext.dbUri = project.property('dbUriPub')
+    project.ext.dbUser = project.property('dbUserPubDdl')
+    project.ext.dbPwd = project.property('dbPwdPubDdl')
+} else if ( dbName == 'oereb_v2' ) {
+    project.ext.dbUri = project.property('dbUriOerebV2')
+    project.ext.dbUser = project.property('dbUserOerebV2Ddl')
+    project.ext.dbPwd = project.property('dbPwdOerebV2Ddl')
+} else {
+    throw new Exception("No DB connection parameters defined for DB ${dbName}")
+}
+
+// Decide if the role names and grants SQL files need a suffix
+// (this is the case when a schema is to be placed in multiple DBs)
+// And set the suffix specifying the database as extra property (empty string is the default suffix)
+project.ext.set('dbSpecificSuffix', '')
+if ( schemaProperties.getProperty('databases') && schemaProperties.getProperty('databases').split(',').size()> 1 ) {
+    project.ext.set('dbSpecificSuffix', "_${dbName}db".toString())
+}
+
+
+
+task dropSchemaShared(type: SqlExecutor) {
+    group = 'Drop schema'
+    description = 'Drop DB schema and schema roles (roles for reading from and writing to the DB schema)'
+    doLast {
+        println "DB schema ${project.schemaName} and schema roles dropped"
+    }
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    sqlFiles = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ? ['drop_schema.sql', 'drop_role.sql'] : files('drop_schema.sql', 'drop_role.sql')
+    sqlParameters = [dbSchema: project.schemaName, roleSuffix: project.dbSpecificSuffix]
+}
+
+task dropPreviousSchemaVersionShared(type: SqlExecutor) {
+    group = 'Drop prevous schema version'
+    description = 'Drop previous DB schema version and schema roles (roles for reading from and writing to the DB schema)'
+    doLast {
+        println "DB schema ${project.schemaNamePrevious} and schema roles dropped"
+    }
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    sqlFiles = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ? ['drop_schema.sql', 'drop_role.sql'] : files('drop_schema.sql', 'drop_role.sql')
+    sqlParameters = [dbSchema: project.schemaNamePrevious, roleSuffix: project.dbSpecificSuffix]
+}
+
+task createEmptySchemaShared(type: SqlExecutor) {
+    group = 'Create schema'
+    description = 'Create empty DB schema and schema roles (roles for reading from and writing to the DB schema)'
+    doLast {
+        println "DB schema ${project.schemaName} and schema roles created"
+    }
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    sqlFiles = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ? ['create_schema.sql', 'create_role.sql'] : files('create_schema.sql', 'create_role.sql')
+    sqlParameters = [dbSchema: project.schemaName, roleSuffix: project.dbSpecificSuffix]
+}
+
+task createSchemaShared(type: Ili2pgImportSchema) {
+    group = 'Create schema'
+    description = 'Create tables in schema according to INTERLIS model'
+    dependsOn 'createEmptySchemaShared'
+    doLast {
+        println "Tables in DB schema ${project.schemaName} created according to INTERLIS model"
+    }
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    dbschema = project.schemaName
+    models = project.schemaProperties.getProperty('models')
+    modeldir = '%ILI_FROM_DB;%XTF_DIR;https://geo.so.ch/models/'
+    // Configure the following properties only if they are set
+    // in the schema.properties file (use ili2pg defaults otherwise)
+    if (project.schemaProperties.getProperty('defaultSrsCode'))
+        defaultSrsCode = project.schemaProperties.getProperty('defaultSrsCode')
+    if (project.schemaProperties.getProperty('createGeomIdx'))
+        createGeomIdx = project.schemaProperties.getProperty('createGeomIdx').toBoolean()
+    if (project.schemaProperties.getProperty('createFk'))
+        createFk = project.schemaProperties.getProperty('createFk').toBoolean()
+    if (project.schemaProperties.getProperty('createFkIdx'))
+        createFkIdx = project.schemaProperties.getProperty('createFkIdx').toBoolean()
+    if (project.schemaProperties.getProperty('createUnique'))
+        createUnique = project.schemaProperties.getProperty('createUnique').toBoolean()
+    if (project.schemaProperties.getProperty('createEnumTabs'))
+        createEnumTabs = project.schemaProperties.getProperty('createEnumTabs').toBoolean()
+    if (project.schemaProperties.getProperty('beautifyEnumDispName'))
+        beautifyEnumDispName = project.schemaProperties.getProperty('beautifyEnumDispName').toBoolean()
+    if (project.schemaProperties.getProperty('createMetaInfo'))
+        createMetaInfo = project.schemaProperties.getProperty('createMetaInfo').toBoolean()
+    if (project.schemaProperties.getProperty('createNumChecks'))
+        createNumChecks = project.schemaProperties.getProperty('createNumChecks').toBoolean()
+    if (project.schemaProperties.getProperty('nameByTopic'))
+        nameByTopic = project.schemaProperties.getProperty('nameByTopic').toBoolean()
+    if (project.schemaProperties.getProperty('strokeArcs'))
+        strokeArcs = project.schemaProperties.getProperty('strokeArcs').toBoolean()
+    if (project.schemaProperties.getProperty('createStdCols'))
+        createStdCols = project.schemaProperties.getProperty('createStdCols').toBoolean()
+    if (project.schemaProperties.getProperty('idSeqMin'))
+        idSeqMin = project.schemaProperties.getProperty('idSeqMin').toLong()
+    if (project.schemaProperties.getProperty('createImportTabs'))
+        createImportTabs = project.schemaProperties.getProperty('createImportTabs').toBoolean()
+    if (project.schemaProperties.getProperty('createBasketCol'))
+        createBasketCol = project.schemaProperties.getProperty('createBasketCol').toBoolean()
+    if (project.schemaProperties.getProperty('createDatasetCol'))
+        createDatasetCol = project.schemaProperties.getProperty('createDatasetCol').toBoolean()
+    if (project.schemaProperties.getProperty('createTidCol'))
+        createTidCol = project.schemaProperties.getProperty('createTidCol').toBoolean()
+    if (project.schemaProperties.getProperty('createEnumTxtCol'))
+        createEnumTxtCol = project.schemaProperties.getProperty('createEnumTxtCol').toBoolean()
+    if (project.schemaProperties.getProperty('createEnumTabsWithId'))
+        createEnumTabsWithId = project.schemaProperties.getProperty('createEnumTabsWithId').toBoolean()
+    if (project.schemaProperties.getProperty('smart1Inheritance'))
+        smart1Inheritance = project.schemaProperties.getProperty('smart1Inheritance').toBoolean()
+    if (project.schemaProperties.getProperty('smart2Inheritance'))
+        smart2Inheritance = project.schemaProperties.getProperty('smart2Inheritance').toBoolean()
+    createTextChecks = true
+    if (project.schemaProperties.getProperty('createTextChecks'))
+        createTextChecks = project.schemaProperties.getProperty('createTextChecks').toBoolean()
+    createDateTimeChecks = true
+    if (project.schemaProperties.getProperty('createDateTimeChecks'))
+        createDateTimeChecks = project.schemaProperties.getProperty('createDateTimeChecks').toBoolean()
+    if (project.schemaProperties.getProperty('createTypeConstraint'))
+        createTypeConstraint = project.schemaProperties.getProperty('createTypeConstraint').toBoolean()
+    if (project.schemaProperties.getProperty('coalesceMultiSurface'))
+        coalesceMultiSurface = project.schemaProperties.getProperty('coalesceMultiSurface').toBoolean()
+    if (project.schemaProperties.getProperty('coalesceMultiLine'))
+        coalesceMultiLine = project.schemaProperties.getProperty('coalesceMultiLine').toBoolean()
+    if (project.schemaProperties.getProperty('coalesceArray'))
+        coalesceArray = project.schemaProperties.getProperty('coalesceArray').toBoolean()
+    if (project.schemaProperties.getProperty('coalesceJson'))
+        coalesceJson = project.schemaProperties.getProperty('coalesceJson').toBoolean()
+    if (project.schemaProperties.getProperty('expandStruct'))
+        expandStruct = project.schemaProperties.getProperty('expandStruct').toBoolean()
+    if (project.schemaProperties.getProperty('sqlColsAsText'))
+        sqlColsAsText = project.schemaProperties.getProperty('sqlColsAsText').toBoolean()
+    if (project.schemaProperties.getProperty('sqlExtRefCols'))
+        sqlExtRefCols = project.schemaProperties.getProperty('sqlExtRefCols').toBoolean()
+    if (project.schemaProperties.getProperty('iliMetaAttrs'))
+        iliMetaAttrs = project(':schema-tasks-topic').file(project.schemaProperties.getProperty('iliMetaAttrs')).path
+    if (project.schemaProperties.getProperty('modeldir'))
+        modeldir = project.schemaProperties.getProperty('modeldir')
+    if (project.schemaProperties.getProperty('sqlEnableNull'))
+        sqlEnableNull = project.schemaProperties.getProperty('sqlEnableNull').toBoolean()
+}
+
+task configureSchemaShared(type: SqlExecutor) {
+    // Set the comment for the schema to empty string if not set
+    def schemaComment = project.schemaProperties.getProperty('schemaComment') ?: ''
+
+    // Create a FileCollection containing the SQL scripts to execute
+    // And for backwards compatibility, create an additional ArrayList containing the same SQL scripts
+    // The comment_on_schema.sql script is always executed
+    def sqlScriptsCollection = files('comment_on_schema.sql')
+    def sqlScriptsList = ['comment_on_schema.sql']
+    // If any of the following files exists in the topic folder,
+    // add it to the FileCollection of SQL scripts to execute
+    // And add it to the backwards compatibility ArrayList of SQL scripts to execute
+    def additionalSqlFileNames = ['create_views.sql', 'postscript.sql', 'stdcols.sql']
+    for ( additionalSqlFileName in additionalSqlFileNames) {
+        def additionalSqlFile = project(':schema-tasks-topic').file(additionalSqlFileName)
+        if (additionalSqlFile.exists()) {
+            sqlScriptsCollection += files(additionalSqlFile)
+            sqlScriptsList.add(additionalSqlFile.getPath())
+        }
+    }
+
+    group = 'Configure schema'
+    description = 'Set comment on schema'
+    doLast {
+        println "DB schema ${project.schemaName} configured"
+    }
+    // Run grantDevelopmentPrivileges task afterwards if in a development environment
+    finalizedBy {
+        if (gretlEnvironment == 'development' || gretlEnvironment == 'dev') {
+            return ':development-tasks-shared:grantDevelopmentPrivileges'
+        }
+    }
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    sqlFiles = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ? sqlScriptsList : sqlScriptsCollection
+    sqlParameters = [dbSchema: project.schemaName, dbSchemaComment: "'" + schemaComment + "'"]
+}

@@ -1,0 +1,33 @@
+import ch.so.agi.gretl.tasks.*
+
+apply plugin: 'ch.so.agi.gretl'
+
+
+task grantPrivilegesShared(type: SqlExecutor) {
+    group = 'Grant privileges'
+    description = 'Grant privileges on schema and tables to schema roles, and grant membership in those roles'
+    doLast {
+        println "Privileges for DB schema ${project.schemaName} granted"
+    }
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    sqlFiles = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ?
+        [
+            'recreate_role.sql',
+            project(':privilege-tasks-topic').file("grants${project.dbSpecificSuffix}.sql").getPath()
+        ] :
+        files(
+            'recreate_role.sql',
+            project(':privilege-tasks-topic').file("grants${project.dbSpecificSuffix}.sql")
+        )
+    sqlParameters = [dbSchema: project.schemaName, roleSuffix: project.dbSpecificSuffix]
+}
+
+task createRolesDevelopment(type: SqlExecutor) {
+    group = 'Roles for development DBs'
+    description = 'Creates roles usually missing in the development DBs'
+    doLast {
+        println "Roles for development DB created"
+    }
+    database = [project.dbUri, project.dbUser, project.dbPwd]
+    sqlFiles = jobProperties.getProperty('nodeLabel') != project.apiBreakNodeLabel ? ['create_role_development.sql'] : files('create_role_development.sql')
+}

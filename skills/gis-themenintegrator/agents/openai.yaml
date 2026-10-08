@@ -1,0 +1,4 @@
+interface:
+  display_name: "GIS-Themenintegrator"
+  short_description: "Legacy-GIS-Jobs mit Java und Docker integrieren"
+  default_prompt: "Verwende $gis-themenintegrator, um diesen Legacy-GIS-Vorgang lokal vorzubereiten, zu prüfen und an den menschlichen Etappen anzuhalten."

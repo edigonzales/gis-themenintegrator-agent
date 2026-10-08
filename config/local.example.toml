@@ -1,0 +1,32 @@
+# Relative paths resolve against root, itself relative to this file.
+root = ".."
+state_dir = ".gis-agent"
+timeout_seconds = 300
+default_runtime = "2.x"
+model_repositories = ["https://geo.so.ch/models/", "https://models.geo.admin.ch/", "https://models.interlis.ch/"]
+
+[repositories.gretl]
+path = "../gretljobs"
+url = "https://github.com/sogis/gretljobs.git"
+ref = "main"
+[repositories.schema]
+path = "../schema-jobs"
+url = "https://github.com/sogis/schema-jobs.git"
+ref = "main"
+[repositories.models]
+path = "../sogis-interlis-repository"
+url = "https://github.com/sogis/sogis-interlis-repository.git"
+ref = "master"
+
+[images]
+"2.x" = "sogis/gretl:2.2.617"
+"3.1" = "sogis/gretl:3.1.770"
+"3.2" = "sogis/gretl:3.2.861"
+postgis = "postgis/postgis:18-3.6"
+interlis = "sogis/interlis-mcp@sha256:b3ed1e738ccfe670f92ecebcbb014cf67aade5f0609e15be1f75948e15e899ff"
+
+[interlis]
+transport = "stdio"
+# Optional externally managed HTTP MCP instead:
+# transport = "http"
+# url = "http://127.0.0.1:8080/mcp"

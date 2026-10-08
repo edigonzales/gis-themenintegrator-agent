@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.diffplug.spotless' version '8.7.0'
+}
+group = 'ch.so.agi'
+version = '0.1.0'
+java { toolchain { languageVersion = JavaLanguageVersion.of(25) } }
+repositories { mavenCentral(); maven { url = uri('https://jars.interlis.ch') } }
+dependencies {
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.21.5'
+    implementation 'io.modelcontextprotocol.sdk:mcp:2.0.1'
+    implementation 'org.tomlj:tomlj:1.1.1'
+    implementation 'org.postgresql:postgresql:42.7.7'
+    implementation 'org.jsoup:jsoup:1.21.2'
+    implementation 'ch.interlis:ili2c-tool:5.6.8'
+    implementation 'ch.interlis:ili2c-core:5.6.8'
+    implementation 'ch.interlis:iox-ili:1.24.4'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.17'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+application { mainClass = 'ch.so.agi.gis.Main' }
+test { useJUnitPlatform { excludeTags 'integration' }; systemProperty 'gis.root', projectDir.absolutePath }
+tasks.register('integrationTest', Test) {
+    dependsOn jar, testClasses
+    useJUnitPlatform { includeTags 'integration' }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    systemProperty 'gis.root', projectDir.absolutePath
+}
+jar {
+    archiveFileName = 'gis-integrator.jar'
+    manifest { attributes 'Main-Class': application.mainClass.get() }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    exclude 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA', 'module-info.class', 'META-INF/versions/**/module-info.class'
+}
+dependencyLocking { lockAllConfigurations() }
+spotless { java { googleJavaFormat('1.28.0'); target 'src/main/java/**/*.java', 'src/test/java/**/*.java' } }
