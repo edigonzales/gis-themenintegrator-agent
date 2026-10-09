@@ -24,40 +24,65 @@ final class DockerRuntime {
 
   Map<String, Object> image(String key) {
     var image = Json.obj(images().get(key));
-    if (!Objects.equals(image.get("reference"), s.image(key)))
+    if (!Objects.equals(image.get("reference"), s.image(key))
+        || !Json.str(image, "source", "registry").equals(s.imageSource(key)))
       throw new Problem(
           "runtime_changed",
-          "Image-Konfiguration geändert; init --update-tools ausführen.",
+          "Image-Konfiguration geändert; init --update-image " + key + " ausführen.",
           "profile",
           key);
-    p.checked(
-        List.of("docker", "image", "inspect", "--format", "{{.Id}}", Json.required(image, "id")),
-        s.root,
-        s.timeout);
+    verifyImage(key, image);
     return image;
   }
 
   Map<String, Object> runImage(Map<String, Object> run, String key) {
     var selected = Json.obj(Json.obj(run.get("runtime_images")).get(key));
     if (selected.isEmpty()) return image(key);
-    p.checked(
-        List.of("docker", "image", "inspect", "--format", "{{.Id}}", Json.required(selected, "id")),
-        s.root,
-        s.timeout);
+    verifyImage(key, selected);
     return selected;
   }
 
+  void verifyImage(String key, Map<String, Object> image) {
+    try {
+      p.checked(
+          List.of("docker", "image", "inspect", "--format", "{{.Id}}", Json.required(image, "id")),
+          s.root,
+          s.timeout);
+    } catch (Problem error) {
+      if (error.code.equals("command_failed") && "local".equals(image.get("source")))
+        throw localImageMissing(key, Json.required(image, "reference"));
+      throw error;
+    }
+  }
+
   Map<String, Object> pin(boolean update) {
+    return pin(update, null);
+  }
+
+  Map<String, Object> pin(boolean update, String updateImage) {
+    if (update && updateImage != null)
+      throw new Problem(
+          "invalid_arguments", "--update-tools und --update-image nicht kombinieren.");
+    if (updateImage != null && !s.images().containsKey(updateImage))
+      throw new Problem(
+          "invalid_arguments", "Unbekannter Image-Schlüssel.", "profile", updateImage);
     var images =
         Files.isRegularFile(lockFile())
             ? Json.obj(Json.read(lockFile()).get("images"))
             : Json.map();
     for (String key : s.images().keySet()) {
       String reference = s.image(key);
+      String source = s.imageSource(key);
+      boolean refresh = update || key.equals(updateImage);
       var previous = Json.obj(images.get(key));
-      if (!update && !previous.isEmpty()) {
-        if (!reference.equals(previous.get("reference")))
-          throw new Problem("runtime_changed", "Image-Referenz geändert.", "profile", key);
+      if (!refresh && !previous.isEmpty()) {
+        if (!reference.equals(previous.get("reference"))
+            || !source.equals(Json.str(previous, "source", "registry")))
+          throw new Problem(
+              "runtime_changed",
+              "Image-Konfiguration geändert; init --update-image " + key + " ausführen.",
+              "profile",
+              key);
         var existing =
             p.run(
                 List.of(
@@ -71,6 +96,7 @@ final class DockerRuntime {
                 s.timeout,
                 null);
         if (existing.exitCode() == 0) continue;
+        if (source.equals("local")) throw localImageMissing(key, reference);
         String digest = Json.str(previous, "digest", "");
         if (digest.isEmpty())
           throw new Problem(
@@ -79,6 +105,13 @@ final class DockerRuntime {
               "profile",
               key);
         p.checked(List.of("docker", "pull", digest), s.root, Math.max(600, s.timeout));
+        p.checked(
+            List.of(
+                "docker", "image", "inspect", "--format", "{{.Id}}", Json.required(previous, "id")),
+            s.root,
+            s.timeout);
+        // Restoring a pinned registry image does not rewrite unrelated legacy lock records.
+        continue;
       } else {
         var existing =
             p.run(
@@ -86,11 +119,11 @@ final class DockerRuntime {
                 s.root,
                 s.timeout,
                 null);
-        if (existing.exitCode() != 0 || update)
+        if (source.equals("local") && existing.exitCode() != 0)
+          throw localImageMissing(key, reference);
+        if (source.equals("registry") && (existing.exitCode() != 0 || refresh))
           p.checked(List.of("docker", "pull", reference), s.root, Math.max(600, s.timeout));
       }
-      String target =
-          !update && !previous.isEmpty() ? Json.str(previous, "digest", reference) : reference;
       var inspected =
           Json.read(
               p.checked(
@@ -100,16 +133,27 @@ final class DockerRuntime {
                       "inspect",
                       "--format",
                       "{\"id\":{{json .Id}},\"digests\":{{json .RepoDigests}},\"architecture\":{{json .Architecture}}}",
-                      target),
+                      reference),
                   s.root,
                   s.timeout));
       var digests = Json.strings(inspected.get("digests"));
       inspected.put("reference", reference);
+      inspected.put("source", source);
       inspected.put("digest", digests.isEmpty() ? "" : digests.getFirst());
       images.put(key, inspected);
       Json.atomic(lockFile(), Json.map("format_version", 1, "images", images));
     }
     return images;
+  }
+
+  Problem localImageMissing(String key, String reference) {
+    return new Problem(
+        "local_image_missing",
+        "Lokales Image fehlt. Zuerst bauen; danach init --update-image " + key + " ausführen.",
+        "profile",
+        key,
+        "reference",
+        reference);
   }
 
   String project(Map<String, Object> run) {
@@ -191,6 +235,8 @@ final class DockerRuntime {
                   45),
               "labels",
               Json.map("gis.agent.run", run.get("id"))));
+      if ("local".equals(databaseImage.get("source")))
+        Json.obj(services.get(db + "-db")).put("pull_policy", "never");
       volumes.put(db + "-data", Json.map("labels", Json.map("gis.agent.run", run.get("id"))));
     }
     for (String profile : List.of("2.x", "3.1", "3.2")) {
@@ -215,6 +261,8 @@ final class DockerRuntime {
               List.of(directory + ":" + directory, name + "-cache:/cache"),
               "labels",
               Json.map("gis.agent.run", run.get("id"))));
+      if ("local".equals(selected.get("source")))
+        Json.obj(services.get(name)).put("pull_policy", "never");
       volumes.put(name + "-cache", Json.map("labels", Json.map("gis.agent.run", run.get("id"))));
     }
     // JSON is valid YAML. Keep credential bytes in a private file.

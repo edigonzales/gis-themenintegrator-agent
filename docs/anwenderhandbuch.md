@@ -21,6 +21,10 @@ Im Docker-Modus zusätzliche Eingaben ausserhalb des Checkout-Elternordners übe
 
 Der Bericht liegt in `.gis-agent/init.json`. Init ist wiederholbar.
 `--update-tools` aktualisiert bewusst Images, `--update-docs` die Taskreferenz.
+`--update-image postgis` aktualisiert gezielt nur diesen Image-Pin und darf nicht
+mit `--update-tools` kombiniert werden. `[image_sources]` unterscheidet `registry`
+(Standard) und `local`; lokale Images werden niemals gepullt. Anleitung für
+[native ARM64-Datenbanken und externe GRETL-Overrides](../runtime/postgis-arm64/README.md).
 `--skip-smoke` meldet die Einrichtung bis zur tatsächlichen Prüfung als unvollständig.
 Codex/OpenCode verwenden erzeugte projektlokale Konfigurationen und den gemeinsamen Skill.
 

@@ -1,0 +1,13 @@
+x-native-postgis: &native-postgis
+  image: gis-postgis:18-3.6-arm64
+  platform: linux/arm64
+  pull_policy: never
+  build:
+    context: ${GIS_POSTGIS_BUILD_CONTEXT:?Set GIS_POSTGIS_BUILD_CONTEXT to the absolute postgis-arm64 directory}
+    platforms: [linux/arm64]
+
+services:
+  edit-db:
+    <<: *native-postgis
+  pub-db:
+    <<: *native-postgis

@@ -25,6 +25,12 @@ ref = "master"
 postgis = "postgis/postgis:18-3.6"
 interlis = "sogis/interlis-mcp@sha256:b3ed1e738ccfe670f92ecebcbb014cf67aade5f0609e15be1f75948e15e899ff"
 
+# Explicit local ARM64 option (build first; see runtime/postgis-arm64/README.md):
+# In [images], set postgis = "gis-postgis:18-3.6-arm64".
+# [image_sources]
+# postgis = "local"
+# Unspecified image sources default to "registry".
+
 [interlis]
 transport = "stdio"
 # Optional externally managed HTTP MCP instead:

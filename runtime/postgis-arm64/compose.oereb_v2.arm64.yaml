@@ -1,0 +1,8 @@
+services:
+  oereb_v2-db:
+    image: gis-postgis:18-3.6-arm64
+    platform: linux/arm64
+    pull_policy: never
+    build:
+      context: ${GIS_POSTGIS_BUILD_CONTEXT:?Set GIS_POSTGIS_BUILD_CONTEXT to the absolute postgis-arm64 directory}
+      platforms: [linux/arm64]

@@ -21,6 +21,20 @@ Schema-Kandidaten zeigen und über `configure` aufnehmen. Fehlende Fachwerte,
 Kontakte, Berechtigungsgruppen und erwartete Ergebnisse erfragen. Änderungen
 als Kandidaten in den isolierten Arbeitskopien vorbereiten.
 
+## XTF-Prüfung und Anzeige
+
+IliValidator ist die maßgebliche technische XTF-Prüfung. Nach seinem tatsächlichen
+Lauf das Ergebnis berichten und die Datei anzeigen oder verlinken.
+
+Weitere XML-/XTF-Inhaltsprüfungen ausschliesslich auf ausdrücklichen Zusatzauftrag,
+auch bei Validierungsfehlern. Vorhandene Validator-Meldungen dürfen ausgewertet
+werden. Einen Zusatzauftrag auf die ausdrücklich benannte Prüfung begrenzen.
+
+Ein Auftrag zum Anschauen erlaubt Anzeige, Formatierung und Erklärung. Daraus
+keine zusätzlichen Prüfscripte, Objektzählungen, Wertevergleiche oder Prüfberichte
+ableiten. Bereits beauftragte SQL-Prüfungen und die originalen GRETL-
+Validierungsschritte weiterhin ausführen.
+
 ## Menschliche Etappen
 
 Nach jeder Etappe den Bericht und konkrete Dateien zeigen, erklären und die
@@ -51,7 +65,8 @@ innerhalb einer Etappe dürfen zusammenhängend erfolgen.
 6. Joblauf/Diagnose: `job_run` verlangt einen aktuellen bestandenen Test.
    Für ausdrücklich beauftragte Fehlerreproduktion `spec.mode=diagnosis` verwenden.
    Prozessstatus, Assertions und menschliche Abnahme getrennt erklären.
-   Für Diagnose Logs, DB-Belegung und archivierte XTF untersuchen.
+   Für Diagnose Logs und DB-Belegung untersuchen; zusätzliche XTF-Inhaltsprüfungen
+   nur auf ausdrücklichen Zusatzauftrag durchführen.
 
 ## Freigaben und Übernahme
 

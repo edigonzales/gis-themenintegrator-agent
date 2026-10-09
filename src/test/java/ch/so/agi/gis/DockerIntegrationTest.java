@@ -432,7 +432,11 @@ class DockerIntegrationTest {
         String script =
             "import ch.so.agi.gretl.tasks.*\nimport ch.so.agi.gretl.api.TransferSet\napply plugin:'ch.so.agi.gretl'\ndefaultTasks 'exportCsv'\n"
                 + "tasks.register('download',Curl) { serverUrl='http://"
-                + System.getProperty("gis.testHttpHost", "host.docker.internal")
+                + System.getProperty(
+                    "gis.testHttpHost",
+                    "true".equals(System.getenv("GIS_CONTAINER_MODE"))
+                        ? System.getenv("HOSTNAME")
+                        : "host.docker.internal")
                 + ":"
                 + server.getAddress().getPort()
                 + "/fixture.csv'; method=Curl.MethodType.GET; outputFile=file(\"$buildDir/input.csv\");expectedStatusCode=200 }\n"

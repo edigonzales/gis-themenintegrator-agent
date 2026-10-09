@@ -27,7 +27,7 @@ public final class Main {
             Json.map(
                 "commands",
                 List.of(
-                    "init [--update-tools] [--update-docs] [--skip-smoke]",
+                    "init [--update-tools|--update-image KEY] [--update-docs] [--skip-smoke]",
                     "doctor",
                     "serve",
                     "schema OP",
@@ -53,6 +53,20 @@ public final class Main {
       }
       Settings s = Settings.load(config);
       if (command.equals("init")) {
+        String updateImage = null;
+        int imageIndex = args.indexOf("--update-image");
+        if (imageIndex >= 0) {
+          if (imageIndex + 1 >= args.size() || args.get(imageIndex + 1).startsWith("--"))
+            throw new Problem("invalid_arguments", "--update-image KEY.");
+          updateImage = args.remove(imageIndex + 1);
+          args.remove(imageIndex);
+          if (!s.images().containsKey(updateImage))
+            throw new Problem(
+                "invalid_arguments", "Unbekannter Image-Schlüssel.", "profile", updateImage);
+          if (args.contains("--update-tools"))
+            throw new Problem(
+                "invalid_arguments", "--update-tools und --update-image nicht kombinieren.");
+        }
         if (args.stream()
             .anyMatch(a -> !Set.of("--update-tools", "--update-docs", "--skip-smoke").contains(a)))
           throw new Problem("invalid_arguments", "Unbekannte Init-Option.");
@@ -60,6 +74,7 @@ public final class Main {
             new Setup(s)
                 .init(
                     args.contains("--update-tools"),
+                    updateImage,
                     args.contains("--update-docs"),
                     args.contains("--skip-smoke"));
         print(result);
@@ -175,7 +190,13 @@ public final class Main {
             .serverInfo("gis-themenintegrator", "0.1.0")
             .capabilities(McpSchema.ServerCapabilities.builder().tools(false).build())
             .instructions(
-                "Legacy-GIS-Vorgänge in eigenen Docker-Datenbanken. Nach jeder fachlichen Etappe Menschen fragen. approve darf nur tatsächliche menschliche Antworten protokollieren. execute führt genau eine freigegebene Etappe aus. Logs und Prozesserfolg ersetzen keine fachliche Abnahme.")
+                "Lokale Legacy-GIS-Vorgänge. approve nur für tatsächliche menschliche Antworten;"
+                    + " execute führt eine freigegebene Etappe aus, danach Menschen fragen."
+                    + " IliValidator ist maßgeblich für XTF. Ergebnis melden, Datei anzeigen/verlinken."
+                    + " Weitere XML-/XTF-Prüfungen nur auf ausdrücklichen Zusatzauftrag, auch bei Fehlern."
+                    + " Anschauen erlaubt Anzeige, Formatierung und Erklärung."
+                    + " Validator-Meldungen auswerten; beauftragte SQL-Prüfungen und originale"
+                    + " GRETL-Validierungen ausführen. Prozesserfolg ist keine fachliche Abnahme.")
             .tools(toolSpecifications)
             .build();
     var closing = new java.util.concurrent.atomic.AtomicBoolean();

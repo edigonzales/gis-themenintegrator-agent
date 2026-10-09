@@ -74,6 +74,16 @@ final class Fixture {
         .forEach(
             (key, value) ->
                 toml.append(Json.text(key)).append("=").append(Json.text(value)).append("\n"));
+    toml.append("[image_sources]\n");
+    production
+        .images()
+        .keySet()
+        .forEach(
+            key ->
+                toml.append(Json.text(key))
+                    .append("=")
+                    .append(Json.text(production.imageSource(key)))
+                    .append("\n"));
     toml.append("[interlis]\ntransport=\"stdio\"\n");
     Path config = root.resolve("config/local.toml");
     Json.write(config, toml.toString());

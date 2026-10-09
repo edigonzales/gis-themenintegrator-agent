@@ -17,6 +17,19 @@ final class Settings {
     timeout = Json.number(values, "timeout_seconds", 300);
     if (timeout < 1 || timeout > 7200)
       throw new Problem("configuration_invalid", "timeout_seconds: 1–7200.");
+    var sources = values.get("image_sources");
+    if (sources != null && !(sources instanceof Map))
+      throw new Problem("configuration_invalid", "image_sources muss eine TOML-Tabelle sein.");
+    for (var entry : Json.obj(sources).entrySet()) {
+      if (!images().containsKey(entry.getKey())
+          || !(entry.getValue() instanceof String source)
+          || !Set.of("registry", "local").contains(source))
+        throw new Problem(
+            "configuration_invalid",
+            "image_sources: vorhandener Image-Schlüssel und registry oder local erforderlich.",
+            "profile",
+            entry.getKey());
+    }
   }
 
   static Settings load(String location) {
@@ -72,6 +85,10 @@ final class Settings {
 
   String image(String profile) {
     return Json.required(images(), profile);
+  }
+
+  String imageSource(String profile) {
+    return Json.str(Json.obj(values.get("image_sources")), profile, "registry");
   }
 
   Map<String, Object> interlis() {

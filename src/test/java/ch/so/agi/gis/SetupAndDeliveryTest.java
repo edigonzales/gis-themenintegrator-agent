@@ -14,6 +14,9 @@ class SetupAndDeliveryTest {
     Files.delete(fixture.s.state.resolve("tools/images.json"));
     var values = new LinkedHashMap<>(fixture.s.values);
     values.put("images", Json.map("2.x", fixture.s.image("2.x"), "3.2", fixture.s.image("3.2")));
+    var sources = new LinkedHashMap<>(Json.obj(values.get("image_sources")));
+    sources.keySet().retainAll(Set.of("2.x", "3.2"));
+    values.put("image_sources", sources);
     var s = new Settings(fixture.s.file, values);
     class FakeDocker extends Processes {
       boolean fail = true;

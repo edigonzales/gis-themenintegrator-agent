@@ -16,6 +16,11 @@ final class Setup {
   }
 
   Map<String, Object> init(boolean updateTools, boolean updateDocs, boolean skipSmoke) {
+    return init(updateTools, null, updateDocs, skipSmoke);
+  }
+
+  Map<String, Object> init(
+      boolean updateTools, String updateImage, boolean updateDocs, boolean skipSmoke) {
     try {
       Files.createDirectories(s.state);
       try (var channel =
@@ -51,7 +56,7 @@ final class Setup {
             for (String repo : List.of("gretl", "schema", "models"))
               repos.put(repo, new Repositories(s, p).ensure(repo));
             step(report, journal, "repositories", repos);
-            var selected = runtime.pin(updateTools);
+            var selected = runtime.pin(updateTools, updateImage);
             step(report, journal, "images", selected);
             var reference = new Knowledge(s, p).refresh(updateDocs);
             step(
